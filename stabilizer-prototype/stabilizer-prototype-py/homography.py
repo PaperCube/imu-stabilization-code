@@ -29,8 +29,16 @@ config = NumberStore(
 homography = np.array([[1, 0, 0], [0, 1, 0], [0, 0, 1]])
 
 
-def create_intrinsic_matrix(fx, fy, cx, cy):
-    return np.array([[fx, 0, cx], [0, fy, cy], [0, 0, 1]])
+def create_intrinsic_matrix(
+        fx: int,
+        fy: int,
+        cx,
+        cy):
+    return np.array([
+        [fx, 0, cx],
+        [0, fy, cy],
+        [0, 0, 1]
+    ])
 
 
 # K: np.ndarray = create_intrinsic_matrix(960, 960, 480, 480)

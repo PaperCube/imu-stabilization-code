@@ -1,14 +1,23 @@
 import bisect
 import time
 import math
+import signal
+import os
+import threading
 from collections import namedtuple
 from typing import *
 
 import cv2
-import threading
+import numpy as np
+import scipy as sp
+import functools
+import itertools
+
+from scipy.spatial.transform import Rotation as R
 
 from dotdict import dotdict
 from numberstore import NumberStore, ConfigItem
+from homography import create_intrinsic_matrix
 
 files = dotdict({
     'framestamps': r"D:\Documents\CUST\毕业设计\Stage 02-Examples\manifold_motion_smoothing\data\framestamps.txt",
@@ -18,12 +27,17 @@ files = dotdict({
 
 vinfo = dotdict({
     'fps': 30,
-    'vsize': (720, 480)
+    'vsize': None
 })
 
 
 class GyroData:
-    GyroEntry = namedtuple('GyroEntry', 't x y z')
+    class GyroEntry(namedtuple('GyroEntry', ['t', 'x', 'y', 'z'])):
+        __slots__ = ()
+
+        @property
+        def pos(self) -> np.ndarray:
+            return np.array([self.x, self.y, self.z])
 
     data: list[GyroEntry]
 
@@ -35,8 +49,9 @@ class GyroData:
         for ln in lines:
             if not ln.strip():
                 continue
-            time, x, y, z = ln.split(',')[:4]
+            time, x, y, z = map(float, ln.split(',')[:4])
             ret.data.append(GyroData.GyroEntry._make((time, x, y, z)))
+        return ret
 
     def __init__(self):
         self.data = []
@@ -48,12 +63,12 @@ class GyroData:
     def __getitem__(self, key) -> 'GyroData.GyroEntry':
         return self.data[key]
 
-    def lowerbound(self, value, key: Callable[[GyroEntry], Any] = GyroEntry.t) -> int:
+    def lowerbound(self, value, key: Callable[[GyroEntry], Any] = lambda x: x.t) -> int:
         l = list(map(key, self.data))
         idx = bisect.bisect_left(l, value)
         return idx
 
-    def get_nearest_idx(self, value, key: Callable[[GyroEntry], Any] = GyroEntry.t) -> int:
+    def get_nearest_idx(self, value, key: Callable[[GyroEntry], Any] = lambda x: x.t) -> int:
         idx = self.lowerbound(value, key)
         if idx == 0:
             return idx
@@ -63,6 +78,9 @@ class GyroData:
             return idx
         else:
             return idx - 1
+
+    def __iter__(self):
+        return iter(self.data)
 
 
 def load_framestamps(path: str) -> list[float]:
@@ -84,7 +102,11 @@ framestamps: list[float]
 def preload_data():
     global gyro_data, vcap, framestamps
     gyro_data = GyroData.load_from_file(files.gyro)
+
     vcap = cv2.VideoCapture(files.video)
+    vinfo.vsize = (int(vcap.get(cv2.CAP_PROP_FRAME_WIDTH)),
+                   int(vcap.get(cv2.CAP_PROP_FRAME_HEIGHT)))
+
     framestamps = load_framestamps(files.framestamps)
 
 
@@ -97,8 +119,117 @@ def synced_framestamps() -> Iterator:
         yield frame_id, framestamp, time_offset
 
 
-def compensate_for_frame(frame, framestamp):
-    t, x, y, z = gyro_data.get_nearest_idx(framestamp)
+def load_frames() -> list[cv2.Mat]:
+    ret = []
+    while True:
+        success, frame = vcap.read()
+        if not success:
+            break
+        ret.append(frame)
+    return ret
+
+
+viewer_hud = dotdict()
+
+
+def render_viewer_hud(
+    frame: cv2.Mat,
+    *,
+    line_spacing: int = 30
+) -> cv2.Mat:
+    items = sorted(viewer_hud.items(), key=lambda x: x[0])
+    ln_number = 0
+    for k, v in items:
+        cv2.putText(
+            frame,
+            f'{k}: {v}',
+            (10, 30 + ln_number * line_spacing),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.5,
+            color=(100, 100, 255),
+            thickness=1
+        )
+        ln_number += 1
+    return frame
+
+
+@functools.cache
+def load_gyro_prefix_sum() -> np.ndarray:
+    '''
+    They cannot be directly added as they are space vectors
+    '''
+    matrices = []
+    rot_matrix_pre = np.eye(3)
+    for t, x, y, z in gyro_data:
+        rot = R.from_euler('xyz', [x, y, z], degrees=True)
+        rot_matrix = rot_matrix_pre @ rot.as_matrix()
+        matrices.append(rot_matrix)
+    ret = np.empty((len(matrices), 3))
+    for i, m in enumerate(matrices):
+        ret[i] = R.from_matrix(m).as_euler('xyz', degrees=True)
+    return ret
+
+
+_ratio = 1
+
+
+@functools.cache
+def K():
+    return create_intrinsic_matrix(
+        vinfo.vsize[0] * _ratio,
+        vinfo.vsize[1] * _ratio,
+        vinfo.vsize[0] / 2,
+        vinfo.vsize[1] / 2
+    )
+
+
+def warp_image(frame: cv2.Mat,
+               current_integrated_gyro_data: np.ndarray,
+               direction=None # default: 0+1+2+
+               ) -> cv2.Mat:
+    if direction is None:
+        direction = '0+1+2+'
+    gyro = np.empty_like(current_integrated_gyro_data)
+    for i in range(3):
+        mi, d = direction[i * 2], direction[i * 2 + 1]
+        assert mi in '012' and d in '+-'
+        gyro[i] = current_integrated_gyro_data[int(mi)] * (-1 if d == '-' else 1)
+    print(f'{direction} {current_integrated_gyro_data} -> {gyro}')
+    rot_mat = R.from_euler('xyz', gyro, degrees=True).as_matrix()
+
+    hom_upd = K() @ (rot_mat) @ np.linalg.inv(K())
+    return cv2.warpPerspective(frame, hom_upd, vinfo.vsize)
+
+direction_mappings = '0+1+2+'
+def viewer_process_frame(frame: cv2.Mat, framestamp: float) -> cv2.Mat:
+    nearest_gyro_idx = gyro_data.get_nearest_idx(framestamp)
+    viewer_hud._01_gyro_data = gyro_data[nearest_gyro_idx]
+    viewer_hud._01_gyro_delta = gyro_data[nearest_gyro_idx].pos - \
+        gyro_data[nearest_gyro_idx -
+                  1].pos if nearest_gyro_idx > 0 else np.array([0, 0, 0])
+
+    current_integrated_gyro_data = load_gyro_prefix_sum()[nearest_gyro_idx]
+    viewer_hud._01_gyro_prefix_sum = current_integrated_gyro_data
+
+    return render_viewer_hud(warp_image(frame, current_integrated_gyro_data, direction_mappings))
+
+
+def frame_viewer():
+    frames = load_frames()
+    store.get_field_by_name('frame_id').bounds = (0, len(frames) - 1)
+    while True:
+        frame_i, = store['frame_id']
+
+        frame = frames[frame_i]
+        framestamp = framestamps[frame_i]
+        cv2.imshow('frame', viewer_process_frame(frame, framestamp))
+
+        key = cv2.waitKey(0)
+        changed_config = store.handle_key(key)
+        if changed_config:
+            print(changed_config)
+        elif key == ord('q'):
+            break
 
 
 def play_video():
@@ -115,35 +246,44 @@ def play_video():
         # time.sleep(0.1)
         assert ret
 
-        altered_frame = compensate_for_frame(frame, framestamp)
+        altered_frame = viewer_process_frame(frame, framestamp)
 
         cv2.imshow('frame', altered_frame)
+        cv2.imshow('original', frame)
+    print('This is', direction_mappings)
     cv2.waitKey(0)
 
+# Possible:
+# 0+2+1+
 
-def load_frames() -> list[cv2.Mat]:
-    ret = []
-    while True:
-        success, frame = vcap.read()
-        if not success:
-            break
-        ret.append(frame)
-    return ret
+def play_all_possible_videos():
+    starter = input('Starting from? ')
+    arr = []
+    for indexes in itertools.permutations('012'):
+        for direction in itertools.product('+-', repeat=3):
+            arr.append(''.join(map(lambda x: x[0] + x[1], zip(indexes, direction))))
+    try:
+        starter_idx = arr.index(starter)
+    except ValueError:
+        starter_idx = 0
+        input('Not found. Press enter to start from 0')
+    for dm in arr[starter_idx:]:
+        global direction_mappings
+        direction_mappings = dm
+        play_video()
+        print('it was', dm)
+        preload_data()
 
-
-def frame_viewer():
-    frames = load_frames()
-    store.get_field_by_name('frame_id').bounds = (0, len(frames) - 1)
-    while True:
-        frame_i, = store['frame_id']
-        cv2.imshow('frame', frames[frame_i])
-        store.handle_key(cv2.waitKey(0))
-        print(store)
 
 
 def cv_worker():
-    preload_data()
-    frame_viewer()
+    try:
+        preload_data()
+        play_all_possible_videos()
+    except Exception as e:
+        import traceback
+        import signal
+        print('cv_worker exception:', e, traceback.format_exc())
 
 
 if __name__ == '__main__':
@@ -161,3 +301,5 @@ if __name__ == '__main__':
             time.sleep(0.2)
     except KeyboardInterrupt:
         print('KeyboardInterrupt')
+
+    os.kill(os.getpid(), signal.SIGTERM)
