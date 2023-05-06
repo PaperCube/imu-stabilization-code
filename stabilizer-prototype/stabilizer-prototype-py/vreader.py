@@ -18,69 +18,34 @@ from scipy.spatial.transform import Rotation as R
 from dotdict import dotdict
 from numberstore import NumberStore, ConfigItem
 from homography import create_intrinsic_matrix
+from gyro_data import GyroData
+
+base_dir = r"D:\Documents\CUST\毕业设计\Stage 02-Examples\manifold_motion_smoothing\data\\"
+base_dir = r"D:\Projects\ML\imu-stabilization\stabilizer-prototype\output\sample 001\\"
 
 files = dotdict({
-    'framestamps': r"D:\Documents\CUST\毕业设计\Stage 02-Examples\manifold_motion_smoothing\data\framestamps.txt",
-    'gyro': r"D:\Documents\CUST\毕业设计\Stage 02-Examples\manifold_motion_smoothing\data\gyro.txt",
-    'video': r"D:\Documents\CUST\毕业设计\Stage 02-Examples\manifold_motion_smoothing\data\video_sample.avi"
+    'framestamps': base_dir + "framestamps.txt",
+    'gyro': base_dir + "gyro.txt",
+    'video': base_dir + "video_sample.avi"
 })
 
 vinfo = dotdict({
     'fps': 30,
-    'vsize': None
+    'vsize': None,
 })
 
+# hwinfo = dotdict({
+#     'gyro_diff': 0.1555,
+#     'gyro_drift': -np.array([-0.0082, 0.0052, 0.0155]), # note: negated compared to matlab codes
+#     'f': 649.2773,
+# })
 
-class GyroData:
-    class GyroEntry(namedtuple('GyroEntry', ['t', 'x', 'y', 'z'])):
-        __slots__ = ()
-
-        @property
-        def pos(self) -> np.ndarray:
-            return np.array([self.x, self.y, self.z])
-
-    data: list[GyroEntry]
-
-    @staticmethod
-    def load_from_file(file_path: str):
-        with open(file_path) as f:
-            lines = f.readlines()
-        ret = GyroData()
-        for ln in lines:
-            if not ln.strip():
-                continue
-            time, x, y, z = map(float, ln.split(',')[:4])
-            ret.data.append(GyroData.GyroEntry._make((time, x, y, z)))
-        return ret
-
-    def __init__(self):
-        self.data = []
-        pass
-
-    def __len__(self):
-        return len(self.data)
-
-    def __getitem__(self, key) -> 'GyroData.GyroEntry':
-        return self.data[key]
-
-    def lowerbound(self, value, key: Callable[[GyroEntry], Any] = lambda x: x.t) -> int:
-        l = list(map(key, self.data))
-        idx = bisect.bisect_left(l, value)
-        return idx
-
-    def get_nearest_idx(self, value, key: Callable[[GyroEntry], Any] = lambda x: x.t) -> int:
-        idx = self.lowerbound(value, key)
-        if idx == 0:
-            return idx
-        if idx == len(self):
-            return idx - 1
-        if abs(key(self.data[idx]) - value) < abs(key(self.data[idx - 1]) - value):
-            return idx
-        else:
-            return idx - 1
-
-    def __iter__(self):
-        return iter(self.data)
+hwinfo = dotdict({
+    'gyro_diff': 0.0,
+    # note: negated compared to matlab codes
+    'gyro_drift': np.array([0, 0, 0]),
+    'f': 600,
+})
 
 
 def load_framestamps(path: str) -> list[float]:
@@ -101,7 +66,7 @@ framestamps: list[float]
 
 def preload_data():
     global gyro_data, vcap, framestamps
-    gyro_data = GyroData.load_from_file(files.gyro)
+    gyro_data = GyroData.load_from_file(files.gyro, drift=hwinfo.gyro_drift)
 
     vcap = cv2.VideoCapture(files.video)
     vinfo.vsize = (int(vcap.get(cv2.CAP_PROP_FRAME_WIDTH)),
@@ -176,8 +141,8 @@ _ratio = 1
 @functools.cache
 def K():
     return create_intrinsic_matrix(
-        vinfo.vsize[0] * _ratio,
-        vinfo.vsize[1] * _ratio,
+        hwinfo.f,
+        hwinfo.f,
         vinfo.vsize[0] / 2,
         vinfo.vsize[1] / 2
     )
@@ -185,7 +150,7 @@ def K():
 
 def warp_image(frame: cv2.Mat,
                current_integrated_gyro_data: np.ndarray,
-               direction=None # default: 0+1+2+
+               direction=None  # default: 0+1+2+
                ) -> cv2.Mat:
     if direction is None:
         direction = '0+1+2+'
@@ -193,16 +158,21 @@ def warp_image(frame: cv2.Mat,
     for i in range(3):
         mi, d = direction[i * 2], direction[i * 2 + 1]
         assert mi in '012' and d in '+-'
-        gyro[i] = current_integrated_gyro_data[int(mi)] * (-1 if d == '-' else 1)
-    print(f'{direction} {current_integrated_gyro_data} -> {gyro}')
+        gyro[i] = current_integrated_gyro_data[int(
+            mi)] * (-1 if d == '-' else 1)
+    # print(f'{direction} {current_integrated_gyro_data} -> {gyro}')
     rot_mat = R.from_euler('xyz', gyro, degrees=True).as_matrix()
 
     hom_upd = K() @ (rot_mat) @ np.linalg.inv(K())
     return cv2.warpPerspective(frame, hom_upd, vinfo.vsize)
 
-direction_mappings = '0+1+2+'
+
+direction_mappings = '0+1-2+'
+
+
 def viewer_process_frame(frame: cv2.Mat, framestamp: float) -> cv2.Mat:
-    nearest_gyro_idx = gyro_data.get_nearest_idx(framestamp)
+    nearest_gyro_idx = gyro_data.get_nearest_idx(framestamp - hwinfo.gyro_diff)
+    viewer_hud._00_framestamp = framestamp
     viewer_hud._01_gyro_data = gyro_data[nearest_gyro_idx]
     viewer_hud._01_gyro_delta = gyro_data[nearest_gyro_idx].pos - \
         gyro_data[nearest_gyro_idx -
@@ -212,6 +182,7 @@ def viewer_process_frame(frame: cv2.Mat, framestamp: float) -> cv2.Mat:
     viewer_hud._01_gyro_prefix_sum = current_integrated_gyro_data
 
     return render_viewer_hud(warp_image(frame, current_integrated_gyro_data, direction_mappings))
+    return render_viewer_hud(frame)
 
 
 def frame_viewer():
@@ -240,7 +211,10 @@ def play_video():
 
         time_offset_millis = int(time_offset * 1000)
         if time_offset_millis > 0:
-            cv2.waitKey(time_offset_millis)
+            key = cv2.waitKey(time_offset_millis)
+            if key == ord('s'):
+                print("Skipping...")
+                break
         elif time_offset < 0:
             continue
         # time.sleep(0.1)
@@ -256,12 +230,14 @@ def play_video():
 # Possible:
 # 0+2+1+
 
+
 def play_all_possible_videos():
     starter = input('Starting from? ')
     arr = []
     for indexes in itertools.permutations('012'):
         for direction in itertools.product('+-', repeat=3):
-            arr.append(''.join(map(lambda x: x[0] + x[1], zip(indexes, direction))))
+            arr.append(
+                ''.join(map(lambda x: x[0] + x[1], zip(indexes, direction))))
     try:
         starter_idx = arr.index(starter)
     except ValueError:
@@ -275,11 +251,12 @@ def play_all_possible_videos():
         preload_data()
 
 
-
 def cv_worker():
     try:
         preload_data()
-        play_all_possible_videos()
+        # play_all_possible_videos()
+        # frame_viewer()
+        play_video()
     except Exception as e:
         import traceback
         import signal

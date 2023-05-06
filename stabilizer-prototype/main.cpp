@@ -1,23 +1,60 @@
-#include <iostream>
-#include <opencv2/opencv.hpp>
-#include <thread>
-#include <vector>
+#include <cstdio>
+#include <cassert>
+#include <chrono>
+#include <fstream>
 
-#include "utils/homography.h"
-#include "utils/quaternion_cv.h"
+#include "datacollector/win32utils.h"
+#include "datacollector/sensor_device.h"
+#include "datacollector/data_collector.h"
+
+using namespace std::chrono_literals;
+
+void testComDevice() {
+    SensorDevice sensor(6, 230400);
+//    sensor.setBaudRate(230400);
+
+
+//    auto &comDevice = sensor.comDevice();
+//    ComDevice comDevice(6, 19200);
+//    assert(comDevice.opened());
+//    while (true) {
+//        unsigned char c[64];
+//        DWORD errCode;
+//        long long read = comDevice.read(c, sizeof(c), &errCode);
+//        if (read > 0) {
+//            for (int i = 0; i < read; i++) {
+//                printf("%02x ", c[i]);
+//            }
+//            printf("\n");
+//        } else {
+//            printf("read = %lld, err = %s\n", read, getErrorCodeString(errCode).c_str());
+//            break;
+//        }
+//    }
+    printf("starting thread\n");
+    new std::thread([&](){
+        std::this_thread::sleep_for(3s);
+        sensor.requestRegisterValue(0x03);
+        sensor.setReportRate(0x09);
+        printf("written value\n");
+    });
+    printf("started thread\n");
+
+    while (true) {
+        using namespace std::chrono_literals;
+        std::this_thread::sleep_for(1000ms);
+
+        SensorState state = sensor.getCurrentSensorState();
+        auto &acc = state.Acceleration;
+        printf("%f %f %f\n", acc[0], acc[1], acc[2]);
+//        fflush(stdout);
+    }
+
+    sensor.mMonitorThread->join();
+}
 
 int main() {
-    using namespace std;
-    using namespace cv;
-    using namespace stabilizer;
-
-//    vector<Point2f> arr{{0, 0}, {0, 1}, {1, 0}, {1, 1}};
-//    Mat homography = getPerspectiveTransform(arr, arr);
-//    cout << homography << endl;
-    const double pi = acos(-1);
-
-    Quaternion<double> q(0, 1, 0, 0);
-    cout << q.rotate_point({0, 0, 0, 1}, pi / 2) << endl;
-
+//    testComDevice();
+    collector_impl::runDataCollector();
     return 0;
 }

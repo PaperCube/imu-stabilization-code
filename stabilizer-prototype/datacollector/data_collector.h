@@ -1,0 +1,9 @@
+
+#ifndef STABILIZER_PROTOTYPE_DATA_COLLECTOR_H
+#define STABILIZER_PROTOTYPE_DATA_COLLECTOR_H
+
+namespace collector_impl {
+    void runDataCollector();
+}
+
+#endif //STABILIZER_PROTOTYPE_DATA_COLLECTOR_H
