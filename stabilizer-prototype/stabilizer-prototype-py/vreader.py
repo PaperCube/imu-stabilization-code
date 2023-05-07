@@ -21,7 +21,7 @@ from homography import create_intrinsic_matrix
 from gyro_data import GyroData
 
 base_dir = r"D:\Documents\CUST\毕业设计\Stage 02-Examples\manifold_motion_smoothing\data\\"
-base_dir = r"D:\Projects\ML\imu-stabilization\stabilizer-prototype\output\sample 001\\"
+base_dir = r"D:\Projects\ML\imu-stabilization\stabilizer-prototype\output\sample 004\\"
 
 files = dotdict({
     'framestamps': base_dir + "framestamps.txt",
@@ -41,7 +41,7 @@ vinfo = dotdict({
 # })
 
 hwinfo = dotdict({
-    'gyro_diff': 0.0,
+    'gyro_diff': 0.2,
     # note: negated compared to matlab codes
     'gyro_drift': np.array([0, 0, 0]),
     'f': 600,
@@ -67,6 +67,7 @@ framestamps: list[float]
 def preload_data():
     global gyro_data, vcap, framestamps
     gyro_data = GyroData.load_from_file(files.gyro, drift=hwinfo.gyro_drift)
+    gyro_data.simple_filter_inplace(10)
 
     vcap = cv2.VideoCapture(files.video)
     vinfo.vsize = (int(vcap.get(cv2.CAP_PROP_FRAME_WIDTH)),
@@ -167,7 +168,7 @@ def warp_image(frame: cv2.Mat,
     return cv2.warpPerspective(frame, hom_upd, vinfo.vsize)
 
 
-direction_mappings = '0+1-2+'
+direction_mappings = '1+2-0-'
 
 
 def viewer_process_frame(frame: cv2.Mat, framestamp: float) -> cv2.Mat:
@@ -194,6 +195,7 @@ def frame_viewer():
         frame = frames[frame_i]
         framestamp = framestamps[frame_i]
         cv2.imshow('frame', viewer_process_frame(frame, framestamp))
+        cv2.imshow('original', frame)
 
         key = cv2.waitKey(0)
         changed_config = store.handle_key(key)
@@ -255,7 +257,7 @@ def cv_worker():
     try:
         preload_data()
         # play_all_possible_videos()
-        # frame_viewer()
+        frame_viewer()
         play_video()
     except Exception as e:
         import traceback

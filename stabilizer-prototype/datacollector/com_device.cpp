@@ -88,10 +88,12 @@ ComDevice::~ComDevice() {
 }
 
 void ComDevice::close() {
+    std::lock_guard<std::mutex> lock(mCloseLock);
+
+    mFlagOpened = false;
     PurgeComm(mHandleComDevice,
               PURGE_TXABORT | PURGE_RXABORT | PURGE_TXCLEAR | PURGE_RXCLEAR);
     CloseHandle(mHandleComDevice);
-    mFlagOpened = false;
 }
 
 bool ComDevice::flush() {
@@ -106,6 +108,8 @@ void ComDevice::setBaudRate(int aBaudRate) {
 }
 
 long ComDevice::read(unsigned char *aBuffer, size_t aSize, DWORD *aOutErr) {
+    std::lock_guard<std::mutex> lock(mCloseLock);
+
     DWORD dwBytesRead = 0;
     int ok = ReadFile(mHandleComDevice, aBuffer, aSize, &dwBytesRead, nullptr);
     DWORD err = GetLastError();
@@ -117,6 +121,8 @@ long ComDevice::read(unsigned char *aBuffer, size_t aSize, DWORD *aOutErr) {
 }
 
 long ComDevice::write(const unsigned char *aBuffer, size_t aSize, DWORD *aOutErr) {
+    std::lock_guard<std::mutex> lock(mCloseLock);
+
     alterCommState(mHandleComDevice, [&](DCB &dcb) {
         dcb.fDtrControl = DTR_CONTROL_DISABLE; // Not sure why this is necessary
         // Maybe this is a feature of the chip

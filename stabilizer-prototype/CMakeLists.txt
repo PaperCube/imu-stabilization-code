@@ -16,13 +16,17 @@ add_executable(
         stabilizer_prototype
         main.cpp
 
+        datacollector/data_collector.h
+
         utils/homography.h
         utils/homography.cpp
 
         utils/quaternion.h
         utils/quaternion.cpp
         utils/quaternion_cv.h
-)
+        datacollector/witsdk.h
+        # end of executables
+        datacollector/witsdk_constants.h datacollector/witsdk.cpp datacollector/com_device.cpp datacollector/com_device.h datacollector/sensor_device.cpp datacollector/sensor_device.h datacollector/fixed_size_buffer.h datacollector/win32utils.h datacollector/win32utils.cpp datacollector/data_collector.cpp)
 
 target_link_libraries(stabilizer_prototype ${OpenCV_LIBS})
 

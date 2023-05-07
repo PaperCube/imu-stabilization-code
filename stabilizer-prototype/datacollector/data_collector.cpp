@@ -4,6 +4,7 @@
 #include <fstream>
 
 #include <opencv2/opencv.hpp>
+#
 
 #include "win32utils.h"
 #include "sensor_device.h"
@@ -37,6 +38,7 @@ namespace collector_impl {
     void afterMessageCallback(const SensorState &s) {
         auto now = steady_clock::now();
         auto elapsed = duration_cast<milliseconds>(now - kProgramStart).count();
+        if (!gGyroOutput) return;
         gGyroOutput << (elapsed / 1000.0) << ',';
         writeArray(gGyroOutput, s.Acceleration);
         writeArray(gGyroOutput, s.AngularVelocity);
@@ -48,6 +50,14 @@ namespace collector_impl {
 
     void runDataCollector() {
         SensorDevice sensor(6, 230400);
+
+        printf("awaiting sensor response... \n");
+        sensor.awaitDeviceFirstResponse(5);
+        printf("received sensor response\n");
+
+        sensor.performCalibration(SensorDevice::CalibrationMode::SetAngleReference);
+        printf("set angle reference\n");
+
         sensor.setAfterMessageCallback(collector_impl::afterMessageCallback);
 
         cv::Mat mat;
@@ -71,11 +81,26 @@ namespace collector_impl {
         );
 
         while (cap >> mat, cap.isOpened()) {
+            cv::imshow("Camera Preview", mat);
+
             const auto elapsed = duration_cast<milliseconds>(
                     steady_clock::now() - collector_impl::kProgramStart).count();
             writer << mat;
             collector_impl::gFrameStampOutput << (elapsed / 1000.0) << endl;
+
+            int key = cv::pollKey();
+            if (key == 'q') {
+                break;
+            }
         }
+
+        printf("Releasing...\n");
+        cv::destroyAllWindows();
+        writer.release();
+        cap.release();
+        gFrameStampOutput.close();
+        sensor.close();
+        printf("Exiting\n");
 
     }
 }

@@ -40,6 +40,17 @@ struct SensorMagics {
 };
 
 class SensorDevice {
+public:
+    enum class CalibrationMode : short {
+        Normal = 0,
+        AutoAccelerometer = 1,
+        ClearAltitude = 3,
+        ClearYaw = 4,
+        AutoMagnetometerSphericalFit = 0x07,
+        SetAngleReference = 0x08,
+        AutoMagnetometerDualPlane = 0x09,
+    };
+
 private:
     ComDevice mComDevice;
 
@@ -50,18 +61,23 @@ public:
     std::thread *mMonitorThread = nullptr;
     using MessageListenerCallback = std::function<void(const SensorState &)>;
 
+    volatile bool mAllowCommandDelays = true;
+
 private:
     unsigned char *mBuffer = nullptr;
     fixed_size_buffer<unsigned char> mProcessQueue;
 
     unsigned const kBlockSize = 8;
 
-    SensorRegister mRegister;
+    SensorRegister mRegister{};
     std::mutex mRegisterLock;
+    bool mRegisterUpdated = false;
     std::condition_variable mRegisterCondition;
+
     SensorState mSensorState = {};
     std::mutex mSensorStateLock;
 
+    // locked on mSensorStateLock
     MessageListenerCallback mAfterMessageCallback;
 
     using MutexLockGuard = std::lock_guard<std::mutex>;
@@ -84,16 +100,23 @@ public:
 
     ComDevice &comDevice() { return mComDevice; }
 
+    void setAllowCommandDelays(bool aAllowCommandDelays) {
+        mAllowCommandDelays = aAllowCommandDelays;
+    }
+
     SensorState getCurrentSensorState();
 //    SensorState awaitNextSensorState();
 
     void setAfterMessageCallback(const MessageListenerCallback &callback);
+
+    bool awaitDeviceFirstResponse(int aRetries);
 
     bool sendUartMessage(const unsigned char *begin, size_t size);
     bool sendCommandUnlocked(const unsigned char *begin, size_t size);
     void setBaudRate(int aBaudRate);
     void setReportRate(int aReportRateType);
     void requestRegisterValue(short aDataType);
+    void performCalibration(CalibrationMode aCalibrationMode);
 
 private:
     void init();
@@ -101,6 +124,9 @@ private:
     void monitorThreadWorker();
     void dataByteCallback(unsigned char);
     void handleMessage(unsigned char *begin);
+    void parseMessage(unsigned char *aMsg);
+
+    static void sParseMessageToSensorState(unsigned char *aMsg, SensorState &aOutState);
 };
 
 #endif //STABILIZER_PROTOTYPE_SENSOR_DEVICE_H

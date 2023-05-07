@@ -6,6 +6,7 @@
 #include <functional>
 #include <thread>
 #include <atomic>
+#include <mutex>
 
 class ComDevice {
     friend class SensorDevice;
@@ -14,8 +15,10 @@ private:
     static const int kSystemBufferSize = 8;
 
     HANDLE mHandleComDevice = nullptr;
-    bool mFlagOpened = false;
+    volatile bool mFlagOpened = false;
     int mComPort, mBaudRate;
+
+    std::mutex mCloseLock;
 
 public:
     ComDevice(int aComPort, int aBaudRate);

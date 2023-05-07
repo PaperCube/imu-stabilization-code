@@ -31,14 +31,15 @@ void testComDevice() {
 //            break;
 //        }
 //    }
-    printf("starting thread\n");
-    new std::thread([&](){
-        std::this_thread::sleep_for(3s);
-        sensor.requestRegisterValue(0x03);
-        sensor.setReportRate(0x09);
-        printf("written value\n");
-    });
-    printf("started thread\n");
+//    printf("starting thread\n");
+//    new std::thread([&](){
+//        std::this_thread::sleep_for(3s);
+//        sensor.requestRegisterValue(0x03);
+//        sensor.setReportRate(0x09);
+//        printf("written value\n");
+//    });
+//    printf("started thread\n");
+
 
     while (true) {
         using namespace std::chrono_literals;

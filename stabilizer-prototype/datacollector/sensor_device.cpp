@@ -123,7 +123,7 @@ void remapLittleEndianInt16ThenCopy(const ubyte *aBinarySource, OutputType *aOut
     }
 }
 
-void parseMessageToSensorState(unsigned char *aMsg, SensorState &aSensorState) {
+void SensorDevice::sParseMessageToSensorState(unsigned char *aMsg, SensorState &aSensorState) {
     const ubyte type = aMsg[1];
 //    const ubyte al = aMsg[2], ah = aMsg[3];
 //    const ubyte bl = aMsg[4], bh = aMsg[5];
@@ -149,17 +149,53 @@ void parseMessageToSensorState(unsigned char *aMsg, SensorState &aSensorState) {
             std::copy(aMsg + 2, aMsg + 8, aSensorState.Time);
             aSensorState.Time[6] = *reinterpret_cast<short *>(aMsg + 8);
             break;
-        case SensorMagics::DataTypeRegister:
-            printf("register value %02x %02x ...\n", aMsg[2], aMsg[3]);
-            break;
         default:
 //            printf("unknown data type %x\n", type);
             break;
     }
 }
 
+void SensorDevice::parseMessage(unsigned char *aMsg) {
+    // value readouts are delegated to other functions
+    switch (aMsg[1]) {
+        case SensorMagics::DataTypeRegister:
+            printf("register value %02x %02x %02x %02x %02x %02x %02x %02x ...\n",
+                   aMsg[2], aMsg[3], aMsg[4], aMsg[5],
+                   aMsg[6], aMsg[7], aMsg[8], aMsg[9]);
+            {
+                std::unique_lock<std::mutex> g(mRegisterLock);
+                mRegisterUpdated = true;
+                memcpy(mRegister.Content, aMsg + 2, 8);
+                mRegisterCondition.notify_all();
+            }
+            break;
+        default:
+            sParseMessageToSensorState(aMsg, mSensorState);
+            break;
+    }
+}
+
 void SensorDevice::setAfterMessageCallback(const MessageListenerCallback &callback) {
+    std::lock_guard<std::mutex> l(mSensorStateLock);
     mAfterMessageCallback = callback;
+}
+
+bool SensorDevice::awaitDeviceFirstResponse(int aRetries) {
+    using namespace std::chrono_literals;
+
+    std::unique_lock<std::mutex> g(mRegisterLock);
+    while (aRetries != 0) { // negative value = infinite
+        mRegisterUpdated = false;
+        requestRegisterValue(0x34);
+        bool result = mRegisterCondition.wait_for(g, 100ms, [this] { return mRegisterUpdated; });
+        if (!result) {
+            --aRetries;
+            continue;
+        } else {
+            return true;
+        }
+    }
+    return false;
 }
 
 
@@ -169,15 +205,16 @@ void SensorDevice::handleMessage(unsigned char *begin) {
 //    printf("msg type %x\n", begin[1]);
     {
         std::unique_lock<std::mutex> g(mSensorStateLock);
-        parseMessageToSensorState(begin, mSensorState);
+        const MessageListenerCallback afterMessageCallback = mAfterMessageCallback;
+        parseMessage(begin);
 
         int currentMessageType = begin[1];
         // presuming that the sensor returns values in the order that type# increases
 
-        if (currentMessageType < mLastMessageType && mAfterMessageCallback) {
+        if (currentMessageType < mLastMessageType && afterMessageCallback) {
             SensorState copyState = mSensorState;
             g.unlock();
-            mAfterMessageCallback(copyState);
+            afterMessageCallback(copyState);
         } else {
             g.unlock();
         }
@@ -216,6 +253,7 @@ bool SensorDevice::sendUartMessage(const unsigned char *begin, size_t size) {
 
 bool SensorDevice::sendCommandUnlocked(const unsigned char *begin, size_t size) {
     return sendUartMessage(kUnlockMessage, 5) &&
+           (std::this_thread::sleep_for(std::chrono::milliseconds(100)), true) &&
            sendUartMessage(begin, size) &&
            sendUartMessage(kSaveMessage, 5);
 }
@@ -277,8 +315,16 @@ void SensorDevice::requestRegisterValue(short aDataType) {
     assert(sendCommandUnlocked(command, 5));
 }
 
+void SensorDevice::performCalibration(CalibrationMode aCalibrationMode) {
+    ubyte command[5] = "\xFF\xAA\x01";
+    reinterpret_cast<short *>(command + 3)[0] = (short) aCalibrationMode;
+    assert(sendCommandUnlocked(command, 5));
+}
+
 SensorDevice::~SensorDevice() {
     delete[] mBuffer;
-    mMonitorThread->join();
-    delete mMonitorThread;
+    if (mMonitorThread) {
+        mMonitorThread->join();
+        delete mMonitorThread;
+    }
 }
