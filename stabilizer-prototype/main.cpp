@@ -54,8 +54,50 @@ void testComDevice() {
     sensor.mMonitorThread->join();
 }
 
+using namespace std::chrono_literals;
+
+void drawGraph(const double *values,
+               int len,
+               double aRatioFull = 600,
+               int aColWidth = 21) {
+    assert((aColWidth & 1) && "aColWidth must be odd");
+    for (int i = 0; i < len; i++) {
+        printf("%s", &"|"[int(i == 0)]);
+        char buffer[128] = {};
+        memset(buffer, ' ', aColWidth);
+        const int halfWidth = aColWidth >> 1;
+        buffer[halfWidth] = '|';
+        int charsToFill = (int) std::trunc(values[i] / aRatioFull * halfWidth);
+        for (int offset = 1; offset <= std::min(std::abs(charsToFill), halfWidth); offset++) {
+            buffer[halfWidth + offset * (charsToFill < 0 ? -1 : 1)] = charsToFill < 0 ? '<' : '>';
+        }
+        printf("%s", buffer);
+    }
+//    printf("\n");
+}
+
+void testAngle() {
+    SensorDevice sensor(9, 230400);
+    assert(sensor.comDevice().opened());
+    assert(sensor.awaitDeviceFirstResponse(5));
+    while (true) {
+        std::this_thread::sleep_for(50ms);
+
+        SensorState state = sensor.getCurrentSensorState();
+        auto &acc = state.AngularVelocity;
+        drawGraph(acc, 3);
+        printf(" | %f %f %f\n", acc[0], acc[1], acc[2]);
+    }
+}
+
+namespace calibrator {
+    int main();
+}
+
 int main() {
 //    testComDevice();
     collector_impl::runDataCollector();
+//    testAngle();
+//    calibrator::main();
     return 0;
 }

@@ -4,7 +4,9 @@
 #include <fstream>
 
 #include <opencv2/opencv.hpp>
+
 #
+
 
 #include "win32utils.h"
 #include "sensor_device.h"
@@ -80,15 +82,28 @@ namespace collector_impl {
                 cv::Size(vWidth, vHeight)
         );
 
+        bool started = false;
+
+        cout << "Press 's' in the preview window to start recording" << endl;
+
         while (cap >> mat, cap.isOpened()) {
             cv::imshow("Camera Preview", mat);
 
-            const auto elapsed = duration_cast<milliseconds>(
-                    steady_clock::now() - collector_impl::kProgramStart).count();
-            writer << mat;
-            collector_impl::gFrameStampOutput << (elapsed / 1000.0) << endl;
+            if (started) {
+                const auto elapsed = duration_cast<milliseconds>(
+                        steady_clock::now() - collector_impl::kProgramStart).count();
+                writer << mat;
+                collector_impl::gFrameStampOutput << (elapsed / 1000.0) << endl;
+            }
 
             int key = cv::pollKey();
+
+            if (!started && key == 's') {
+                sensor.performCalibration(SensorDevice::CalibrationMode::SetAngleReference);
+                printf("set angle reference\n");
+                started = true;
+            }
+
             if (key == 'q') {
                 break;
             }
