@@ -7,12 +7,46 @@ from typing import *
 
 
 class GyroData:
-    class GyroEntry(namedtuple('GyroEntry', ['t', 'x', 'y', 'z'])):
-        __slots__ = ()
+    slice_linacc = slice(0, 3)
+    slice_angular = slice(3, 6)
+    slice_quaternion = slice(6, 10)
+
+    class GyroEntry:
+        def __init__(self, t, values):
+            self.t = float(t)
+            assert len(values) == 10
+            self.values = np.array(values)
+            # if len(self.values) > 10:
+            #     raise ValueError(f"values too long")
+            # if len(self.values) < 10:
+            #     self.values.extend([0] * (10 - len(self.values)))
+
+        @staticmethod
+        def compose(t, linacc, angular, quaternion):
+            assert (len(linacc) == 3 and len(angular)
+                    == 3 and len(quaternion) == 4)
+            return GyroData.GyroEntry(t, [*linacc, *angular, *quaternion])
+
+        def __getitem__(self, idx):
+            return self.values[idx]
 
         @property
-        def pos(self) -> np.ndarray:
-            return np.array([self.x, self.y, self.z])
+        def linacc(self) -> np.ndarray:
+            return np.array(self[GyroData.slice_linacc])
+
+        @property
+        def angular(self) -> np.ndarray:
+            return np.array(self[GyroData.slice_angular])
+
+        @property
+        def quaternion(self) -> np.ndarray:
+            return np.array(self[GyroData.slice_quaternion])
+
+        def __repr__(self) -> str:
+            lx, ly, lz = self.linacc
+            ax, ay, az = self.angular
+            qw, qx, qy, qz = self.quaternion
+            return f'linacc({lx:.3f}, {ly:.3f}, {lz:.3f}), angular({ax:.3f}, {ay:.3f}, {az:.3f}), qtn({qw:.3f}, {qx:.3f}, {qy:.3f}, {qz:.3f}))'
 
     data: list[GyroEntry]
 
@@ -21,31 +55,31 @@ class GyroData:
         # return value is angular velocity? confirm first.
         val = list(val)
         if len(val) == 4:
-            return val
-        return val[0], *val[4:7]
+            return val[0], val[1:4], [0] * 3, [0] * 4
+        return val[0], val[1:4], val[4:7], val[13:17]
 
     @staticmethod
     def load_from_file(file_path: str, drift: Iterable[float] = [0, 0, 0]):
-        dx, dy, dz = drift[:3]
+        # dx, dy, dz = drift[:3]
         with open(file_path) as f:
             lines = f.readlines()
         ret = GyroData()
         for ln in lines:
             if not ln.strip():
                 continue
-            time, x, y, z = GyroData.__auto_extract_values(
+            time, linacc, angular, quaternion = GyroData.__auto_extract_values(
                 map(float, ln.strip().rstrip(",").split(',')))
             ret.data.append(
-                GyroData.GyroEntry._make((time, x - dx, y - dy, z - dz))
+                GyroData.GyroEntry.compose(time, linacc, angular, quaternion)
             )
         return ret
-    
-    @staticmethod 
+
+    @staticmethod
     def from_ndarray(timestamps: Iterable[float], values: np.ndarray) -> 'GyroData':
         assert len(timestamps) == len(values)
         ret = GyroData()
         for t, v in zip(timestamps, values):
-            ret.data.append(GyroData.GyroEntry(t, *v))
+            ret.data.append(GyroData.GyroEntry(t, v))
         return ret
 
     def __init__(self):
@@ -83,8 +117,8 @@ class GyroData:
     def to_numpy_array(self) -> np.ndarray:
         """Returns values excluding timestamps
         """
-        return np.array([x.pos for x in self.data])
-    
+        return np.array([x.values for x in self.data])
+
     def timestamps(self) -> np.ndarray:
         return np.array([x.t for x in self.data])
 

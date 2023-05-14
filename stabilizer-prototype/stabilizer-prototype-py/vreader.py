@@ -23,7 +23,7 @@ from gyro_data import GyroData
 from filters import *
 
 base_dir = r"D:\Documents\CUST\毕业设计\Stage 02-Examples\manifold_motion_smoothing\data\\"
-base_dir = r"D:\Projects\ML\imu-stabilization\stabilizer-prototype\output\sample 009\\"
+base_dir = r"D:\Projects\ML\imu-stabilization\stabilizer-prototype\output\sample 011\\"
 
 filter = MovingAverageFilter(20)
 # filter = ButterworthFilter(8, .01, 'lowpass')
@@ -83,10 +83,9 @@ def preload_data():
     vcap = cv2.VideoCapture(files.video)
     vinfo.vsize = (int(vcap.get(cv2.CAP_PROP_FRAME_WIDTH)),
                    int(vcap.get(cv2.CAP_PROP_FRAME_HEIGHT)))
-    
+
     print('integrating gyro data')
     load_gyro_prefix_sum()
-
 
 
 def synced_framestamps() -> Iterator:
@@ -145,15 +144,26 @@ def load_gyro_prefix_sum() -> np.ndarray:
 
     matrices = []
     rot_matrix_pre = np.eye(3)
-    for t, x, y, z in gyro_data:
-        rot = R.from_euler('xyz', np.array([x, y, z]) * average_report_interval, degrees=True).as_matrix()
+    for g in gyro_data:
+        x, y, z = g.angular
+        rot = R.from_euler('xyz', np.array(
+            [x, y, z]) * average_report_interval, degrees=True).as_matrix()
         rot_integrated_matrix = rot_matrix_pre @ rot
         matrices.append(rot_integrated_matrix)
         rot_matrix_pre = rot_integrated_matrix
-    ret = np.empty((len(matrices), 3))
+    int_angle = np.empty((len(matrices), 3))
     for i, m in enumerate(matrices):
-        ret[i] = R.from_matrix(m).as_euler('xyz', degrees=True)
-    return ret
+        int_angle[i] = R.from_matrix(m).as_euler('xyz', degrees=True)
+
+    int_movement = np.zeros((len(matrices), 3))
+    for i, g in enumerate(gyro_data):
+        movement_delta = g.linacc * average_report_interval
+        int_movement[i] += movement_delta
+        if i:
+            int_movement[i] += int_movement[i - 1]
+        print(f'delta = {movement_delta} --> integrated: {int_movement[i]}')
+
+    return int_angle, int_movement
 
 
 _ratio = 1
@@ -170,21 +180,26 @@ def K():
 
 
 def warp_image(frame: cv2.Mat,
-               current_integrated_gyro_data: np.ndarray,
+               current_integrated_gyro_data: Iterable[np.ndarray],
                direction=None  # default: 0+1+2+
                ) -> cv2.Mat:
     if direction is None:
         direction = '0+1+2+'
-    gyro = np.empty_like(current_integrated_gyro_data)
+    angle, mvmt = current_integrated_gyro_data
+    gyro = np.empty_like(angle)
     for i in range(3):
         mi, d = direction[i * 2], direction[i * 2 + 1]
         assert mi in '012' and d in '+-'
-        gyro[i] = current_integrated_gyro_data[int(
-            mi)] * (-1 if d == '-' else 1)
+        gyro[i] = angle[int(mi)] * (-1 if d == '-' else 1)
+
     # print(f'{direction} {current_integrated_gyro_data} -> {gyro}')
     rot_mat = R.from_euler('xyz', gyro, degrees=True).as_matrix()
 
-    hom_upd = K() @ (rot_mat) @ np.linalg.inv(K())
+    # todo combine with translation data
+    ntd = np.array([0, 0, 0]).reshape(1, 3)
+    translation = mvmt.reshape(3, 1) @ ntd
+    hom_upd = K() @ (rot_mat - translation) @ np.linalg.inv(K())
+    print(f'rot_mat = {rot_mat}, \nmvmt @ ntd (translation)= {translation}')
     return cv2.warpPerspective(frame, hom_upd, vinfo.vsize)
 
 
@@ -193,16 +208,20 @@ direction_mappings = '1-2-0+'
 
 def viewer_process_frame(frame: cv2.Mat, framestamp: float) -> cv2.Mat:
     nearest_gyro_idx = gyro_data.get_nearest_idx(framestamp - hwinfo.gyro_diff)
+    gyro_cur = gyro_data[nearest_gyro_idx]
+    gyro_prev = gyro_data[nearest_gyro_idx -
+                          1] if nearest_gyro_idx > 0 else None
+
     viewer_hud._00_framestamp = framestamp
-    viewer_hud._01_gyro_data = gyro_data[nearest_gyro_idx]
-    viewer_hud._01_gyro_delta = gyro_data[nearest_gyro_idx].pos - \
-        gyro_data[nearest_gyro_idx -
-                  1].pos if nearest_gyro_idx > 0 else np.array([0, 0, 0])
+    viewer_hud._01_gyro_data = gyro_cur
 
-    current_integrated_gyro_data = load_gyro_prefix_sum()[nearest_gyro_idx]
-    viewer_hud._01_gyro_prefix_sum = current_integrated_gyro_data
+    int_angle, int_mvmt = load_gyro_prefix_sum()
+    cur_int_angle = int_angle[nearest_gyro_idx]
+    cur_int_mvmt = int_mvmt[nearest_gyro_idx]
+    viewer_hud._01_gyro_int_angle = cur_int_angle
+    viewer_hud._01_gyro_int_mvmt = cur_int_mvmt
 
-    return render_viewer_hud(warp_image(frame, current_integrated_gyro_data, direction_mappings))
+    return render_viewer_hud(warp_image(frame, (cur_int_angle, cur_int_mvmt), direction_mappings))
     return render_viewer_hud(frame)
 
 
@@ -227,7 +246,8 @@ def frame_viewer():
 
 def play_video(*, write_file=False):
     if write_file:
-        video_writer = cv2.VideoWriter('corrected_frames.mp4', cv2.VideoWriter_fourcc(*"mp4v"), 30, vinfo.vsize)
+        video_writer = cv2.VideoWriter(
+            'corrected_frames.mp4', cv2.VideoWriter_fourcc(*"mp4v"), 30, vinfo.vsize)
 
     for frame_id, framestamp, time_offset in synced_framestamps():
         ret, frame = vcap.read()
