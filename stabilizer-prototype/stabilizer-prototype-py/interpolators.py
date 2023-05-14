@@ -4,7 +4,6 @@ from typing import *
 
 __T = TypeVar('__T')
 
-
 # class InterpolatorBase:
 #     @abc.abstractmethod
 #     def interpolate()

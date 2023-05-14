@@ -39,6 +39,14 @@ class GyroData:
                 GyroData.GyroEntry._make((time, x - dx, y - dy, z - dz))
             )
         return ret
+    
+    @staticmethod 
+    def from_ndarray(timestamps: Iterable[float], values: np.ndarray) -> 'GyroData':
+        assert len(timestamps) == len(values)
+        ret = GyroData()
+        for t, v in zip(timestamps, values):
+            ret.data.append(GyroData.GyroEntry(t, *v))
+        return ret
 
     def __init__(self):
         self.data = []
@@ -66,24 +74,20 @@ class GyroData:
         else:
             return idx - 1
 
-    def simple_filter_inplace(self, half_window=10):
-        # def format_gyro(g: GyroData.GyroEntry):
-        #     return f'{g.x:.3f}, {g.y:.3f}, {g.z:.3f}'
-
-        orig_data = self.data[:]
-        for i in range(len(self.data)):
-            sliced = orig_data[max(0, i - half_window):i + half_window + 1]
-            self.data[i] = GyroData.GyroEntry(
-                self.data[i].t,
-                np.mean([x.x for x in sliced]),
-                np.mean([x.y for x in sliced]),
-                np.mean([x.z for x in sliced]),
-            )
-            # print(
-            #     f't = {orig_data[i].t}: {format_gyro(orig_data[i])} -> {format_gyro(self.data[i])}')
-
     def __iter__(self):
         return iter(self.data)
 
     def average_report_interval(self):
         return (self.data[-1].t - self.data[0].t) / len(self.data)
+
+    def to_numpy_array(self) -> np.ndarray:
+        """Returns values excluding timestamps
+        """
+        return np.array([x.pos for x in self.data])
+    
+    def timestamps(self) -> np.ndarray:
+        return np.array([x.t for x in self.data])
+
+    def discard_before(self, first):
+        idx = self.lowerbound(first)
+        self.data = self.data[idx:]

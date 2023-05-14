@@ -20,8 +20,14 @@ from numberstore import NumberStore, ConfigItem
 from homography import create_intrinsic_matrix
 from gyro_data import GyroData
 
+from filters import *
+
 base_dir = r"D:\Documents\CUST\毕业设计\Stage 02-Examples\manifold_motion_smoothing\data\\"
-base_dir = r"D:\Projects\ML\imu-stabilization\stabilizer-prototype\output\sample 004\\"
+base_dir = r"D:\Projects\ML\imu-stabilization\stabilizer-prototype\output\sample 009\\"
+
+filter = MovingAverageFilter(20)
+# filter = ButterworthFilter(8, .01, 'lowpass')
+# filter = NullFilter()
 
 files = dotdict({
     'framestamps': base_dir + "framestamps.txt",
@@ -41,7 +47,7 @@ vinfo = dotdict({
 # })
 
 hwinfo = dotdict({
-    'gyro_diff': 0.2,
+    'gyro_diff': 0.0,
     # note: negated compared to matlab codes
     'gyro_drift': np.array([0, 0, 0]),
     'f': 447.4,
@@ -66,20 +72,29 @@ framestamps: list[float]
 
 def preload_data():
     global gyro_data, vcap, framestamps
+    print('Loading framestamps')
+    framestamps = load_framestamps(files.framestamps)
+
+    print('Loading gyro data')
     gyro_data = GyroData.load_from_file(files.gyro, drift=hwinfo.gyro_drift)
-    gyro_data.simple_filter_inplace(10)
+    gyro_data.discard_before(framestamps[0])
+    gyro_data = filter.apply_filter(gyro_data)
 
     vcap = cv2.VideoCapture(files.video)
     vinfo.vsize = (int(vcap.get(cv2.CAP_PROP_FRAME_WIDTH)),
                    int(vcap.get(cv2.CAP_PROP_FRAME_HEIGHT)))
+    
+    print('integrating gyro data')
+    load_gyro_prefix_sum()
 
-    framestamps = load_framestamps(files.framestamps)
 
 
 def synced_framestamps() -> Iterator:
-    time_start = time.perf_counter()
+    time_start = None
 
     for frame_id, framestamp in enumerate(framestamps):
+        if time_start is None:
+            time_start = time.perf_counter() - framestamp
         time_elapsed = time.perf_counter() - time_start
         time_offset = framestamp - time_elapsed
         yield frame_id, framestamp, time_offset
@@ -215,9 +230,9 @@ def play_video(*, write_file=False):
         video_writer = cv2.VideoWriter('corrected_frames.mp4', cv2.VideoWriter_fourcc(*"mp4v"), 30, vinfo.vsize)
 
     for frame_id, framestamp, time_offset in synced_framestamps():
+        ret, frame = vcap.read()
         print(f'frame_id: {frame_id}, framestamp: {framestamp}, time_offset: {time_offset}',
               '[skip]' if time_offset < 0 else '')
-        ret, frame = vcap.read()
 
         time_offset_millis = int(time_offset * 1000)
         if time_offset_millis > 0:
