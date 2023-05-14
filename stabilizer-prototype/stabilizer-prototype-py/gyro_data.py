@@ -67,6 +67,9 @@ class GyroData:
             return idx - 1
 
     def simple_filter_inplace(self, half_window=10):
+        # def format_gyro(g: GyroData.GyroEntry):
+        #     return f'{g.x:.3f}, {g.y:.3f}, {g.z:.3f}'
+
         orig_data = self.data[:]
         for i in range(len(self.data)):
             sliced = orig_data[max(0, i - half_window):i + half_window + 1]
@@ -76,7 +79,11 @@ class GyroData:
                 np.mean([x.y for x in sliced]),
                 np.mean([x.z for x in sliced]),
             )
-
+            # print(
+            #     f't = {orig_data[i].t}: {format_gyro(orig_data[i])} -> {format_gyro(self.data[i])}')
 
     def __iter__(self):
         return iter(self.data)
+
+    def average_report_interval(self):
+        return (self.data[-1].t - self.data[0].t) / len(self.data)

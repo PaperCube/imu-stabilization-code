@@ -44,7 +44,7 @@ hwinfo = dotdict({
     'gyro_diff': 0.2,
     # note: negated compared to matlab codes
     'gyro_drift': np.array([0, 0, 0]),
-    'f': 600,
+    'f': 447.4,
 })
 
 
@@ -124,12 +124,17 @@ def load_gyro_prefix_sum() -> np.ndarray:
     '''
     They cannot be directly added as they are space vectors
     '''
+
+    average_report_interval = gyro_data.average_report_interval()
+    print('gyro_average_report_rate:', average_report_interval)
+
     matrices = []
     rot_matrix_pre = np.eye(3)
     for t, x, y, z in gyro_data:
-        rot = R.from_euler('xyz', [x, y, z], degrees=True)
-        rot_matrix = rot_matrix_pre @ rot.as_matrix()
-        matrices.append(rot_matrix)
+        rot = R.from_euler('xyz', np.array([x, y, z]) * average_report_interval, degrees=True).as_matrix()
+        rot_integrated_matrix = rot_matrix_pre @ rot
+        matrices.append(rot_integrated_matrix)
+        rot_matrix_pre = rot_integrated_matrix
     ret = np.empty((len(matrices), 3))
     for i, m in enumerate(matrices):
         ret[i] = R.from_matrix(m).as_euler('xyz', degrees=True)
@@ -168,7 +173,7 @@ def warp_image(frame: cv2.Mat,
     return cv2.warpPerspective(frame, hom_upd, vinfo.vsize)
 
 
-direction_mappings = '1+2-0-'
+direction_mappings = '1-2-0+'
 
 
 def viewer_process_frame(frame: cv2.Mat, framestamp: float) -> cv2.Mat:
@@ -205,7 +210,10 @@ def frame_viewer():
             break
 
 
-def play_video():
+def play_video(*, write_file=False):
+    if write_file:
+        video_writer = cv2.VideoWriter('corrected_frames.mp4', cv2.VideoWriter_fourcc(*"mp4v"), 30, vinfo.vsize)
+
     for frame_id, framestamp, time_offset in synced_framestamps():
         print(f'frame_id: {frame_id}, framestamp: {framestamp}, time_offset: {time_offset}',
               '[skip]' if time_offset < 0 else '')
@@ -224,9 +232,13 @@ def play_video():
 
         altered_frame = viewer_process_frame(frame, framestamp)
 
+        if write_file:
+            video_writer.write(altered_frame)
         cv2.imshow('frame', altered_frame)
         cv2.imshow('original', frame)
     print('This is', direction_mappings)
+    if write_file:
+        video_writer.release()
     cv2.waitKey(0)
 
 # Possible:
@@ -257,8 +269,8 @@ def cv_worker():
     try:
         preload_data()
         # play_all_possible_videos()
-        frame_viewer()
-        play_video()
+        # frame_viewer()
+        play_video(write_file=False)
     except Exception as e:
         import traceback
         import signal
