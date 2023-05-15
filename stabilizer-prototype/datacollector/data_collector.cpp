@@ -42,11 +42,11 @@ namespace collector_impl {
         auto elapsed = duration_cast<milliseconds>(now - kProgramStart).count();
         if (!gGyroOutput) return;
         gGyroOutput << (elapsed / 1000.0) << ',';
-        writeArray(gGyroOutput, s.Acceleration);
-        writeArray(gGyroOutput, s.AngularVelocity);
-        writeArray(gGyroOutput, s.EulerAngle);
-        writeArray(gGyroOutput, s.MagneticField);
-        writeArray(gGyroOutput, s.Quaternion);
+        writeArray(gGyroOutput, s.Acceleration); // 1-4
+        writeArray(gGyroOutput, s.AngularVelocity); // 4-7
+        writeArray(gGyroOutput, s.EulerAngle); // 7-10
+        writeArray(gGyroOutput, s.MagneticField); // 10-13
+        writeArray(gGyroOutput, s.Quaternion); // 13-17
         gGyroOutput << endl;
     }
 

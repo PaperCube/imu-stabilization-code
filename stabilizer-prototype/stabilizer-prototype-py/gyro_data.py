@@ -46,7 +46,7 @@ class GyroData:
             lx, ly, lz = self.linacc
             ax, ay, az = self.angular
             qw, qx, qy, qz = self.quaternion
-            return f'linacc({lx:.3f}, {ly:.3f}, {lz:.3f}), angular({ax:.3f}, {ay:.3f}, {az:.3f}), qtn({qw:.3f}, {qx:.3f}, {qy:.3f}, {qz:.3f}))'
+            return f'@{self.t:.4f}: linacc({lx:.3f}, {ly:.3f}, {lz:.3f}), angular({ax:.3f}, {ay:.3f}, {az:.3f}), qtn({qw:.3f}, {qx:.3f}, {qy:.3f}, {qz:.3f}))'
 
     data: list[GyroEntry]
 

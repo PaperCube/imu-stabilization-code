@@ -15,6 +15,7 @@ import itertools
 
 from scipy.spatial.transform import Rotation as R
 
+import axis_remapping
 from dotdict import dotdict
 from numberstore import NumberStore, ConfigItem
 from homography import create_intrinsic_matrix
@@ -23,9 +24,9 @@ from gyro_data import GyroData
 from filters import *
 
 base_dir = r"D:\Documents\CUST\毕业设计\Stage 02-Examples\manifold_motion_smoothing\data\\"
-base_dir = r"D:\Projects\ML\imu-stabilization\stabilizer-prototype\output\sample 011\\"
+base_dir = r"D:\Projects\ML\imu-stabilization\stabilizer-prototype\output\sample 004\\"
 
-filter = MovingAverageFilter(20)
+filter = MovingAverageFilter(1)
 # filter = ButterworthFilter(8, .01, 'lowpass')
 # filter = NullFilter()
 
@@ -78,6 +79,7 @@ def preload_data():
     print('Loading gyro data')
     gyro_data = GyroData.load_from_file(files.gyro, drift=hwinfo.gyro_drift)
     gyro_data.discard_before(framestamps[0])
+    gyro_data = AngularDriftRemovalFilter().apply_filter(gyro_data)
     gyro_data = filter.apply_filter(gyro_data)
 
     vcap = cv2.VideoCapture(files.video)
@@ -146,8 +148,11 @@ def load_gyro_prefix_sum() -> np.ndarray:
     rot_matrix_pre = np.eye(3)
     for g in gyro_data:
         x, y, z = g.angular
-        rot = R.from_euler('xyz', np.array(
-            [x, y, z]) * average_report_interval, degrees=True).as_matrix()
+        rot = R.from_euler(
+            'xyz',
+            np.array([x, y, z]) * average_report_interval,
+            degrees=True
+        ).as_matrix()
         rot_integrated_matrix = rot_matrix_pre @ rot
         matrices.append(rot_integrated_matrix)
         rot_matrix_pre = rot_integrated_matrix
@@ -157,11 +162,12 @@ def load_gyro_prefix_sum() -> np.ndarray:
 
     int_movement = np.zeros((len(matrices), 3))
     for i, g in enumerate(gyro_data):
-        movement_delta = g.linacc * average_report_interval
+        movement_delta = (g.linacc - [0, 0, 9.9]) * \
+            0.1 * average_report_interval
         int_movement[i] += movement_delta
         if i:
             int_movement[i] += int_movement[i - 1]
-        print(f'delta = {movement_delta} --> integrated: {int_movement[i]}')
+        # print(f'delta = {movement_delta} --> integrated: {int_movement[i]}')
 
     return int_angle, int_movement
 
@@ -180,26 +186,26 @@ def K():
 
 
 def warp_image(frame: cv2.Mat,
-               current_integrated_gyro_data: Iterable[np.ndarray],
+               current_integrated_gyro_data: Tuple[np.ndarray, np.ndarray],
                direction=None  # default: 0+1+2+
                ) -> cv2.Mat:
     if direction is None:
         direction = '0+1+2+'
     angle, mvmt = current_integrated_gyro_data
     gyro = np.empty_like(angle)
-    for i in range(3):
-        mi, d = direction[i * 2], direction[i * 2 + 1]
-        assert mi in '012' and d in '+-'
-        gyro[i] = angle[int(mi)] * (-1 if d == '-' else 1)
+    axis_remapping.remap_axis(direction, angle, gyro)
 
     # print(f'{direction} {current_integrated_gyro_data} -> {gyro}')
+    # gyro = np.zeros_like(gyro)  # (testing) disable angular compensation
     rot_mat = R.from_euler('xyz', gyro, degrees=True).as_matrix()
 
     # todo combine with translation data
     ntd = np.array([0, 0, 0]).reshape(1, 3)
-    translation = mvmt.reshape(3, 1) @ ntd
+    translation = -axis_remapping.remap_axis(
+        '2-0-1-', mvmt, np.empty_like(mvmt)
+    ).reshape(3, 1) @ ntd
     hom_upd = K() @ (rot_mat - translation) @ np.linalg.inv(K())
-    print(f'rot_mat = {rot_mat}, \nmvmt @ ntd (translation)= {translation}')
+    # print(f'rot_mat = {rot_mat}, \nmvmt @ ntd (translation)= {translation}')
     return cv2.warpPerspective(frame, hom_upd, vinfo.vsize)
 
 
@@ -209,8 +215,8 @@ direction_mappings = '1-2-0+'
 def viewer_process_frame(frame: cv2.Mat, framestamp: float) -> cv2.Mat:
     nearest_gyro_idx = gyro_data.get_nearest_idx(framestamp - hwinfo.gyro_diff)
     gyro_cur = gyro_data[nearest_gyro_idx]
-    gyro_prev = gyro_data[nearest_gyro_idx -
-                          1] if nearest_gyro_idx > 0 else None
+    gyro_prev = gyro_data[nearest_gyro_idx - 1] \
+        if nearest_gyro_idx > 0 else None
 
     viewer_hud._00_framestamp = framestamp
     viewer_hud._01_gyro_data = gyro_cur
@@ -282,11 +288,7 @@ def play_video(*, write_file=False):
 
 def play_all_possible_videos():
     starter = input('Starting from? ')
-    arr = []
-    for indexes in itertools.permutations('012'):
-        for direction in itertools.product('+-', repeat=3):
-            arr.append(
-                ''.join(map(lambda x: x[0] + x[1], zip(indexes, direction))))
+    arr = list(axis_remapping.permutations(3))
     try:
         starter_idx = arr.index(starter)
     except ValueError:
@@ -299,8 +301,10 @@ def play_all_possible_videos():
         print('it was', dm)
         preload_data()
 
+cv_worker_is_alive = True
 
 def cv_worker():
+    global cv_worker_is_alive
     try:
         preload_data()
         # play_all_possible_videos()
@@ -310,11 +314,23 @@ def cv_worker():
         import traceback
         import signal
         print('cv_worker exception:', e, traceback.format_exc())
+    cv_worker_is_alive = False
 
+
+def lifecycle_worker():
+    global cv_worker_is_alive
+    try:
+        while cv_worker_is_alive:
+            time.sleep(0.2)
+    except KeyboardInterrupt:
+        print('KeyboardInterrupt')
+
+    print("Terminating")
+    os.kill(os.getpid(), signal.SIGTERM)
 
 if __name__ == '__main__':
-    cv_worker_thread = threading.Thread(target=cv_worker, daemon=True)
-    cv_worker_thread.start()
+    lifecycle_worker_thread = threading.Thread(target=lifecycle_worker, daemon=True)
+    lifecycle_worker_thread.start()
 
     store = NumberStore(
         data_fields=[
@@ -323,9 +339,8 @@ if __name__ == '__main__':
     )
 
     try:
-        while cv_worker_thread.is_alive():
-            time.sleep(0.2)
+        cv_worker()
     except KeyboardInterrupt:
-        print('KeyboardInterrupt')
+        print('KeyboardInterrupt (main)')
 
-    os.kill(os.getpid(), signal.SIGTERM)
+    

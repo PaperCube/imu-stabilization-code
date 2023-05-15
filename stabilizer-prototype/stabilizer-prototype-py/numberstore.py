@@ -13,11 +13,13 @@ class NumberStore:
                      name: str,
                      keybinding: str,
                      *,
+                     initial=0, 
                      size=None,
                      step=3,
                      mod_scale=5,
                      bounds: Union[tuple[int, int], list[tuple[int, int]]] = None,
                      display_func=lambda x: x):
+            self.initial = initial
             self.name = name
             self.size = size or len(keybinding) // 4
             self.keybinding = keybinding
@@ -29,7 +31,7 @@ class NumberStore:
             self.reset()
 
         def reset(self):
-            self.data = [0] * self.size
+            self.data = [self.initial] * self.size
         
         @property
         def bounds(self):

@@ -19,7 +19,7 @@ shutdown_flag = False
 config = NumberStore(
     data_fields=[
         NumberStore.ConfigItem('rot', 'wWsSaAdDqQeE'),
-        NumberStore.ConfigItem('focal_ratio', '-_=+',
+        NumberStore.ConfigItem('focal_ratio', '-_=+', initial=math.log(450/640),
                                step=0.1, mod_scale=5, display_func=lambda x: math.exp(x)),
         NumberStore.ConfigItem('trl', 'uUjJhHkK[{]}', step=0.2, mod_scale=5),
     ]

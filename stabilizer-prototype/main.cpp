@@ -58,7 +58,7 @@ using namespace std::chrono_literals;
 
 void drawGraph(const double *values,
                int len,
-               double aRatioFull = 600,
+               double aRatioFull = 20,
                int aColWidth = 21) {
     assert((aColWidth & 1) && "aColWidth must be odd");
     for (int i = 0; i < len; i++) {
@@ -77,14 +77,14 @@ void drawGraph(const double *values,
 }
 
 void testAngle() {
-    SensorDevice sensor(9, 230400);
+    SensorDevice sensor(6, 230400);
     assert(sensor.comDevice().opened());
     assert(sensor.awaitDeviceFirstResponse(5));
     while (true) {
         std::this_thread::sleep_for(50ms);
 
         SensorState state = sensor.getCurrentSensorState();
-        auto &acc = state.AngularVelocity;
+        auto &acc = state.Acceleration;
         drawGraph(acc, 3);
         printf(" | %f %f %f\n", acc[0], acc[1], acc[2]);
     }
@@ -96,8 +96,8 @@ namespace calibrator {
 
 int main() {
 //    testComDevice();
-    collector_impl::runDataCollector();
-//    testAngle();
+//    collector_impl::runDataCollector();
+    testAngle();
 //    calibrator::main();
     return 0;
 }
