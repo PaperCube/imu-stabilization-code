@@ -51,7 +51,7 @@ namespace collector_impl {
     }
 
     void runDataCollector() {
-        SensorDevice sensor(6, 230400);
+        SensorDevice sensor(9, 230400);
 
         printf("awaiting sensor response... \n");
         sensor.awaitDeviceFirstResponse(5);

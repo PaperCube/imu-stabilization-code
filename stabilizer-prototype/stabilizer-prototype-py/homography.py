@@ -16,10 +16,25 @@ from numberstore import NumberStore
 shutdown_flag = False
 
 
+
+def fov_to_focal_length(fov: float, sensor_size_px: float, fov_type: Literal['r', 'd'] = 'd'):
+    """Convert fov to focal length. 
+
+    Solved from: FOV = 2 atan(d/2f)
+
+    Notable values:
+    - f=450, d=640: 35.417
+    """
+    if fov_type == 'd':
+        fov = fov / 180 * math.pi
+    return sensor_size_px / 2 / (math.tan(fov / 2))
+    
+
+
 config = NumberStore(
     data_fields=[
-        NumberStore.ConfigItem('rot', 'wWsSaAdDqQeE'),
-        NumberStore.ConfigItem('focal_ratio', '-_=+', initial=math.log(450/640),
+        NumberStore.ConfigItem('rot', 'wWsSaAdDqQeE', step=1, mod_scale=5),
+        NumberStore.ConfigItem('focal_ratio', '-_=+', initial=math.log(fov_to_focal_length(40 * 2, 960) / 960),
                                step=0.1, mod_scale=5, display_func=lambda x: math.exp(x)),
         NumberStore.ConfigItem('trl', 'uUjJhHkK[{]}', step=0.2, mod_scale=5),
     ]
@@ -62,6 +77,7 @@ def process_image(img_mat):
         K = create_intrinsic_matrix(960 * ratio, 960 * ratio, 480, 480)
 
         rot_mat = R.from_euler('xyz', [rx, ry, rz], degrees=True).as_matrix()
+        rot_mat = np.linalg.inv(rot_mat)
         hom_upd = K @ (rot_mat - t_vec @
                        normal.T) @ homography @ np.linalg.inv(K)
 

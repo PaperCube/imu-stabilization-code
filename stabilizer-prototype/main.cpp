@@ -96,8 +96,8 @@ namespace calibrator {
 
 int main() {
 //    testComDevice();
-//    collector_impl::runDataCollector();
-    testAngle();
+    collector_impl::runDataCollector();
+//    testAngle();
 //    calibrator::main();
     return 0;
 }

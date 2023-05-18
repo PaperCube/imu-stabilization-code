@@ -17,9 +17,9 @@ class AngularDriftRemovalFilter(GyroDataFilterBase):
         arr[:, GyroData.slice_angular] -= mean
         for x in range(len(arr)):
             print(f'{orig[x, GyroData.slice_angular]} --> {arr[x, GyroData.slice_angular]}')
-        plt.plot(gyro_data.timestamps(), arr[:, GyroData.slice_angular])
-        plt.plot(gyro_data.timestamps(), orig[:, GyroData.slice_angular], '.')
-        plt.show()
+        # plt.plot(gyro_data.timestamps(), arr[:, GyroData.slice_angular])
+        # plt.plot(gyro_data.timestamps(), orig[:, GyroData.slice_angular], '.')
+        # plt.show()
         print(arr)
         # return gyro_data
         return GyroData.from_ndarray(gyro_data.timestamps(), arr)
