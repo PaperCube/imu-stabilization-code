@@ -24,7 +24,7 @@ from gyro_data import GyroData
 from filters import *
 
 base_dir = r"D:\Documents\CUST\毕业设计\Stage 02-Examples\manifold_motion_smoothing\data\\"
-base_dir = r"D:\Projects\ML\imu-stabilization\stabilizer-prototype\output\sample 012\\"
+base_dir = r"D:\Projects\ML\imu-stabilization\stabilizer-prototype\output\sample 013\\"
 
 filter = MovingAverageFilter(0)
 # filter = ButterworthFilter(8, .01, 'lowpass')

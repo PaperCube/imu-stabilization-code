@@ -2,11 +2,9 @@
 #include <cassert>
 #include <chrono>
 #include <fstream>
+#include <iomanip>
 
 #include <opencv2/opencv.hpp>
-
-#
-
 
 #include "win32utils.h"
 #include "sensor_device.h"
@@ -18,6 +16,27 @@ using namespace std::chrono_literals;
 
 using cv::VideoCapture;
 using cv::VideoWriter;
+
+mutex gPerfLoggerMutex, gPerfLoggerTimerMutex;
+fstream gPerformanceLogger("log-perf.txt", ios::out);
+auto gLastTime = steady_clock::now();
+
+void logTimeHeader() {
+    lock_guard<mutex> g(gPerfLoggerTimerMutex);
+    auto now = steady_clock::now();
+    auto elapsed = duration_cast<nanoseconds>(now - gLastTime).count();
+    gLastTime = now;
+
+    gPerformanceLogger << "[+" << fixed << setw(12) << setprecision(9) << (long double) (elapsed) / 1e9 << "] ";
+}
+
+template<typename... Args>
+void logEvent(const Args &...values) {
+    lock_guard<mutex> g(gPerfLoggerMutex);
+    logTimeHeader();
+    (gPerformanceLogger << ... << values); // requires C++ 17
+    gPerformanceLogger << endl;
+}
 
 namespace collector_impl {
     const string kVideoFileName = "video_sample.avi";
@@ -87,13 +106,18 @@ namespace collector_impl {
         cout << "Press 's' in the preview window to start recording" << endl;
 
         while (cap >> mat, cap.isOpened()) {
+            logEvent("Received a frame");
             cv::imshow("Camera Preview", mat);
+            logEvent("Displayed. ");
 
             if (started) {
                 const auto elapsed = duration_cast<milliseconds>(
-                        steady_clock::now() - collector_impl::kProgramStart).count();
+                        steady_clock::now() - collector_impl::kProgramStart).count(); // preferably moved before imshow?
+                logEvent("Fetched and calculated timestamp");
                 writer << mat;
+                logEvent("Wrote the frame");
                 collector_impl::gFrameStampOutput << (elapsed / 1000.0) << endl;
+                logEvent("Wrote timestamp");
             }
 
             int key = cv::pollKey();
