@@ -1,4 +1,8 @@
 /stabilizer-prototype/output
+/stabilizer-prototype-android
+
+/data_fetch/
+/opencv-test/
 
 # Free File Sync Database
 *.ffs_db
