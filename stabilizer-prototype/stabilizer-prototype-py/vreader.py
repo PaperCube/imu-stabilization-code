@@ -23,14 +23,16 @@ from gyro_data import GyroData
 
 from filters import *
 
+from function_menu import *
+
 base_dir = r"D:\Documents\CUST\毕业设计\Stage 02-Examples\manifold_motion_smoothing\data\\"
-base_dir = r"D:\Projects\ML\imu-stabilization\stabilizer-prototype\output\sample 004\\"
+base_dir = r"D:\Projects\ML\imu-stabilization\stabilizer-prototype\output\sample 013\\"
 
 path_save_pictures = r"D:\Projects\ML\imu-stabilization\stabilizer-prototype\output\vreader_saved\\"
 
-filter = MovingAverageFilter(0)
-# filter = ButterworthFilter(8, .01, 'lowpass')
-# filter = NullFilter()
+seq_filter = MovingAverageFilter(0)
+# seq_filter = ButterworthFilter(8, .01, 'lowpass')
+# seq_filter = NullFilter()
 
 files = dotdict({
     'framestamps': base_dir + "framestamps.txt",
@@ -57,7 +59,8 @@ hwinfo = dotdict({
 })
 
 options = dotdict({
-    'crop_factor': 1,
+    'crop_factor': 2.5,  # 1 for original magnitude, 2.5 for long-ranged narrow fov
+    'display_hud': 'override_only',  # can be True, False or 'override_only'
 })
 
 
@@ -86,7 +89,7 @@ def preload_data():
     gyro_data = GyroData.load_from_file(files.gyro, drift=hwinfo.gyro_drift)
     gyro_data.discard_before(framestamps[0])
     gyro_data = AngularDriftRemovalFilter().apply_filter(gyro_data)
-    gyro_data = filter.apply_filter(gyro_data)
+    gyro_data = seq_filter.apply_filter(gyro_data)
 
     vcap = cv2.VideoCapture(files.video)
     vinfo.vsize = (int(vcap.get(cv2.CAP_PROP_FRAME_WIDTH)),
@@ -128,9 +131,22 @@ def render_viewer_hud(
 ) -> cv2.Mat:
     frame = crop_image(frame, options.crop_factor)  # magnification
 
-    items = sorted(viewer_hud.items(), key=lambda x: x[0])
+    override_tag = '_override'
+
+    if not options.display_hud:
+        items = {}
+    else:
+        items = sorted(viewer_hud.items(), key=lambda x: x[0])
+        if options.display_hud == 'override_only':
+            items = list(filter(lambda x: x[0].endswith(override_tag), items))
+        elif options.display_hud is not True:
+            raise ValueError(
+                f"unrecognized option for display_hud: {options.display_hud}")
+
     ln_number = 0
     for k, v in items:
+        if k.endswith(override_tag):
+            k = k[:-len(override_tag)]
         cv2.putText(
             frame,
             f'{k}: {v}',
@@ -209,10 +225,8 @@ def crop_image(mat: cv2.Mat, magnitude=1, keep_size=True):
         return mat
 
 
-def display_image(window_name: str, mat: cv2.Mat, *args):
-    cropped = crop_image(mat, *args)
-    cv2.imshow(window_name, cropped)
-    return cropped
+def display_image(window_name: str, mat: cv2.Mat):
+    cv2.imshow(window_name, mat)
 
 
 _ratio = 1
@@ -262,7 +276,7 @@ def viewer_process_frame(frame: cv2.Mat, framestamp: float, integrator: Callable
     gyro_prev = gyro_data[nearest_gyro_idx - 1] \
         if nearest_gyro_idx > 0 else None
 
-    viewer_hud._00_framestamp = framestamp
+    viewer_hud._00_t_override = framestamp
     viewer_hud._01_A_gyro_data = gyro_cur
     viewer_hud._01_B_angular = gyro_cur.angular
     viewer_hud._01_D_quat = gyro_cur.quaternion
@@ -303,16 +317,20 @@ def track(frame):
     pass
 
 
-def show_frame_windows(frame, framestamp):
-    vpf0 = display_image('original', crop_image(frame, options.crop_factor))
+def show_frame_windows(frame, framestamp) -> tuple[cv2.Mat]:
+    display_image('original', vpf0 := crop_image(frame, options.crop_factor))
+
     if 'selection' in roi:
         track(frame)
-    vpf1 = viewer_process_frame(frame, framestamp)
-    display_image('frame', vpf1)
+
+    display_image('frame',  vpf1 := viewer_process_frame(frame, framestamp))
+
     vpf2 = viewer_process_frame(
-        frame, framestamp, load_gyro_rotation_by_quaternion)
+        frame, framestamp, load_gyro_rotation_by_quaternion
+    )
     display_image('alternative implementation', vpf2)
-    return frame, vpf0, vpf1, vpf2
+
+    return frame, vpf0, vpf1, vpf2 # vpf = viewer-processed-frame
 
 
 def save_pictures(frames):
@@ -347,7 +365,9 @@ def frame_viewer():
             save_pictures(converted_frames)
 
 
-def play_video(*, write_file=False):
+def play_video(*, write_file=False, allow_skip=None):
+    if allow_skip is None:
+        allow_skip = not write_file
     if write_file:
         video_writer = cv2.VideoWriter(
             'corrected_frames.mp4', cv2.VideoWriter_fourcc(*"mp4v"), 30, vinfo.vsize)
@@ -355,7 +375,7 @@ def play_video(*, write_file=False):
     for frame_id, framestamp, time_offset in synced_framestamps():
         ret, frame = vcap.read()
         print(f'frame_id: {frame_id}, framestamp: {framestamp}, time_offset: {time_offset}',
-              '[skip]' if time_offset < 0 else '')
+              '[skip]' if allow_skip and time_offset < 0 else '')
 
         time_offset_millis = int(time_offset * 1000)
         if time_offset_millis > 0:
@@ -363,12 +383,12 @@ def play_video(*, write_file=False):
             if key == ord('s'):
                 print("Skipping...")
                 break
-        elif time_offset < 0:
-            continue
+        elif allow_skip and time_offset < 0:
+            continue # skip current frame
         # time.sleep(0.1)
         assert ret
 
-        altered_frame = show_frame_windows(frame, framestamp)
+        altered_frame = show_frame_windows(frame, framestamp)[1]
 
         if write_file:
             assert altered_frame is not None
@@ -401,22 +421,6 @@ def play_all_possible_videos():
 cv_worker_is_alive = True
 
 
-class FuncRef:
-    def __init__(self, func, *args, **kwargs):
-        self.func = func
-        self.args = args
-        self.kwargs = kwargs
-
-    def __call__(self, *args, **kwargs):
-        self.func(*self.args, *args, **self.kwargs, **kwargs)
-
-    def __repr__(self):
-        largs_repr = map(str, self.args)
-        kwargs_repr = [f'{k}={v}' for k, v in self.kwargs.items()]
-        args_repr = ', '.join([*largs_repr, *kwargs_repr])
-        return f'{self.func}({args_repr})'
-
-
 def cv_worker():
     global cv_worker_is_alive
     try:
@@ -427,27 +431,11 @@ def cv_worker():
             FuncRef(play_video, write_file=False),
             FuncRef(frame_viewer),
             FuncRef(play_all_possible_videos),
+            FuncRef(play_video, write_file=True),
         ]
 
-        while True:
-            print("Select an option or q to quit (default=0):")
-            for i, v in enumerate(options):
-                print(f'    {i}: {v}')
-            print('\n > ', end='')
+        show_menu(options)
 
-            option_id = input()
-            if option_id == 'q':
-                break
-            elif not option_id.strip():
-                option_id = '0'
-
-            try:
-                option = options[int(option_id)]
-            except RuntimeError as e:
-                print(str(e))
-                continue
-
-            option()
     except KeyboardInterrupt:
         print('Keyboard Interrupt')
     except Exception as e:

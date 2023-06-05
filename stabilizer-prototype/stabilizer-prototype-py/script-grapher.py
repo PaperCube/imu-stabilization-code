@@ -26,7 +26,7 @@ roi = pd.read_csv(path / 'roi.csv', header=None).to_numpy()
 gyro = pd.read_csv(path / 'gyro.txt', header=None).to_numpy()
 t_roi = pd.read_csv(path / 'framestamps.txt', header=None).to_numpy()
 
-roi_x, roi_y = [roi[:, a] + roi[:, a + 1] / 2 for a in range(2)]
+roi_x, roi_y = [roi[:, a] + roi[:, a + 2] / 2 for a in range(2)]
 
 roi_time_begin = t_roi[0]
 
@@ -36,10 +36,10 @@ gt = gt[gtime_slice]
 gx, gy, gz = gyro[gtime_slice][:, 7:10].T
 
 for i, y in enumerate([remap(roi_x), remap(roi_y)]):
-    if True and i in [0]:
+    if True or i in [0]:
         plt.plot(t_roi, y, label=labels[0][i])
 for i, y in enumerate([gx, gy, gz]):
-    if True and i in [2]:
+    if True or i in [2]:
         plt.plot(gt, remap(y), '--', label=labels[1][i])
 # plt.legend(prop=fontprop)
 plt.show()
