@@ -2,16 +2,17 @@ import pandas as pd
 import numpy as np
 
 import matplotlib.pyplot as plt
+import matplotlib.font_manager as font_manager
 
 import pathlib
 
 
-def counter() -> int:
-    global __counter
-    if not '__counter' in globals():
-        __counter = 0
-    __counter += 1
-    return __counter
+font = {'fontname':'Noto Serif SC'}
+fontprop = font_manager.FontProperties(family='Noto Serif SC', size=14)
+
+plt.rcParams["font.family"] = font['fontname']
+
+labels = ['roi_x roi_y'.split(), 'gx gy gz'.split()]
 
 def remap(arr, minv=0, maxv=1):
     am = np.max(arr)
@@ -34,9 +35,11 @@ gtime_slice = gt > roi_time_begin
 gt = gt[gtime_slice]
 gx, gy, gz = gyro[gtime_slice][:, 7:10].T
 
-for y in [remap(roi_x), remap(roi_y)]:
-    plt.plot(t_roi, y, label=str(counter()))
-for y in [gx, gy, gz]:
-    plt.plot(gt, remap(y), '--', label=str(counter()))
-plt.legend()
+for i, y in enumerate([remap(roi_x), remap(roi_y)]):
+    if True and i in [0]:
+        plt.plot(t_roi, y, label=labels[0][i])
+for i, y in enumerate([gx, gy, gz]):
+    if True and i in [2]:
+        plt.plot(gt, remap(y), '--', label=labels[1][i])
+# plt.legend(prop=fontprop)
 plt.show()

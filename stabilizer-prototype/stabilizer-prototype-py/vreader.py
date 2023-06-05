@@ -24,7 +24,9 @@ from gyro_data import GyroData
 from filters import *
 
 base_dir = r"D:\Documents\CUST\毕业设计\Stage 02-Examples\manifold_motion_smoothing\data\\"
-base_dir = r"D:\Projects\ML\imu-stabilization\stabilizer-prototype\output\sample 013\\"
+base_dir = r"D:\Projects\ML\imu-stabilization\stabilizer-prototype\output\sample 004\\"
+
+path_save_pictures = r"D:\Projects\ML\imu-stabilization\stabilizer-prototype\output\vreader_saved\\"
 
 filter = MovingAverageFilter(0)
 # filter = ButterworthFilter(8, .01, 'lowpass')
@@ -52,6 +54,10 @@ hwinfo = dotdict({
     # note: negated compared to matlab codes
     'gyro_drift': np.array([0, 0, 0]),
     'f': 447.4,
+})
+
+options = dotdict({
+    'crop_factor': 1,
 })
 
 
@@ -100,6 +106,7 @@ def synced_framestamps() -> Iterator:
         time_offset = framestamp - time_elapsed
         yield frame_id, framestamp, time_offset
 
+
 @functools.cache
 def load_frames() -> list[cv2.Mat]:
     ret = []
@@ -119,7 +126,7 @@ def render_viewer_hud(
     *,
     line_spacing: int = 30
 ) -> cv2.Mat:
-    frame = crop_image(frame, 2.5)  # magnification
+    frame = crop_image(frame, options.crop_factor)  # magnification
 
     items = sorted(viewer_hud.items(), key=lambda x: x[0])
     ln_number = 0
@@ -203,7 +210,9 @@ def crop_image(mat: cv2.Mat, magnitude=1, keep_size=True):
 
 
 def display_image(window_name: str, mat: cv2.Mat, *args):
-    cv2.imshow(window_name, crop_image(mat, *args))
+    cropped = crop_image(mat, *args)
+    cv2.imshow(window_name, cropped)
+    return cropped
 
 
 _ratio = 1
@@ -270,10 +279,12 @@ def viewer_process_frame(frame: cv2.Mat, framestamp: float, integrator: Callable
 
 # tracker = cv2.MultiTracker_create()
 
+
 roi = dotdict()
 roi.selection = (287, 204, 21, 23)
 # tracker = cv2.MultiTracker_create()
 track_alg = cv2.TrackerKCF_create()
+
 
 def select_roi(frame=None):
     if frame is None:
@@ -293,13 +304,26 @@ def track(frame):
 
 
 def show_frame_windows(frame, framestamp):
-    display_image('original', crop_image(frame, 2.5))
+    vpf0 = display_image('original', crop_image(frame, options.crop_factor))
     if 'selection' in roi:
         track(frame)
-    display_image('frame', viewer_process_frame(frame, framestamp))
-    display_image('alternative implementation', viewer_process_frame(
-        frame, framestamp, load_gyro_rotation_by_quaternion))
-    return None
+    vpf1 = viewer_process_frame(frame, framestamp)
+    display_image('frame', vpf1)
+    vpf2 = viewer_process_frame(
+        frame, framestamp, load_gyro_rotation_by_quaternion)
+    display_image('alternative implementation', vpf2)
+    return frame, vpf0, vpf1, vpf2
+
+
+def save_pictures(frames):
+    if frames is None:
+        print('Saved 0 pictures (None)')
+        return
+    it = list(frames)
+    for idx, frame in enumerate(it):
+        time_now = str(int(time.time()))
+        cv2.imwrite(path_save_pictures + f'{time_now}_s{idx:02d}.png', frame)
+    print(f'Saved {len(frames)} pictures')
 
 
 def frame_viewer():
@@ -311,7 +335,7 @@ def frame_viewer():
         frame = frames[frame_i]
         framestamp = framestamps[frame_i]
 
-        show_frame_windows(frame, framestamp)
+        converted_frames = show_frame_windows(frame, framestamp)
 
         key = cv2.waitKey(0)
         changed_config = store.handle_key(key)
@@ -319,6 +343,8 @@ def frame_viewer():
             print(changed_config)
         elif key == ord('q'):
             break
+        elif key == ord('S'):
+            save_pictures(converted_frames)
 
 
 def play_video(*, write_file=False):
@@ -397,7 +423,7 @@ def cv_worker():
         preload_data()
 
         options = [
-            FuncRef(select_roi), 
+            FuncRef(select_roi),
             FuncRef(play_video, write_file=False),
             FuncRef(frame_viewer),
             FuncRef(play_all_possible_videos),

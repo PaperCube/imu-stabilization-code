@@ -20,6 +20,8 @@ shutdown_flag = False
 def fov_to_focal_length(fov: float, sensor_size_px: float, fov_type: Literal['r', 'd'] = 'd'):
     """Convert fov to focal length. 
 
+    fov_type: r = radius, d = degree
+
     Solved from: FOV = 2 atan(d/2f)
 
     Notable values:
@@ -36,7 +38,7 @@ config = NumberStore(
         NumberStore.ConfigItem('rot', 'wWsSaAdDqQeE', step=1, mod_scale=5),
         NumberStore.ConfigItem('focal_ratio', '-_=+', initial=math.log(fov_to_focal_length(40 * 2, 960) / 960),
                                step=0.1, mod_scale=5, display_func=lambda x: math.exp(x)),
-        NumberStore.ConfigItem('trl', 'uUjJhHkK[{]}', step=0.2, mod_scale=5),
+        NumberStore.ConfigItem('trl', 'uUjJhHkK[{]}', step=0.01, mod_scale=5),
     ]
 )
 
