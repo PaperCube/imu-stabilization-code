@@ -52,7 +52,7 @@ vinfo = dotdict({
 # })
 
 hwinfo = dotdict({
-    'gyro_diff': 0.07,
+    'gyro_diff': 0.0790,
     # note: negated compared to matlab codes
     'gyro_drift': np.array([0, 0, 0]),
     'f': 447.4,
