@@ -2,7 +2,10 @@
     "cmake.configureOnOpen": false,
     "files.associations": {
         "in": "plaintext",
-        "ostream": "cpp"
+        "ostream": "cpp",
+        "chrono": "cpp",
+        "cstddef": "cpp",
+        "functional": "cpp"
     },
     "C_Cpp.default.configurationProvider": "ms-vscode.cmake-tools"
 }

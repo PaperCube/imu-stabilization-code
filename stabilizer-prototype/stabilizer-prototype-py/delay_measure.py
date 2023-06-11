@@ -107,6 +107,7 @@ def trend_consistency(s1, t1, s2, t2, *, td1=0, td2=0):
 
     return result
 
+print('roi_t time range', roi_t[0], roi_t[-1], f'({roi_t[-1] - roi_t[0]})')
 
 results = []
 
@@ -147,7 +148,7 @@ print(results[:20])
 (0.0250000000000008, array([9.656])),
 (0.040000000000000924, array([9.637])),
 (-0.05499999999999916, array([9.579])),
-(-0.4199999999999995, array([9.575]))
+(-0.4199999999999995,  array([9.575]))
 '''
 
 '''

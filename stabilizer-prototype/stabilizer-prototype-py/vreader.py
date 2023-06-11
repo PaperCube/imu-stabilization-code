@@ -26,7 +26,7 @@ from filters import *
 from function_menu import *
 
 base_dir = r"D:\Documents\CUST\毕业设计\Stage 02-Examples\manifold_motion_smoothing\data\\"
-base_dir = r"D:\Projects\ML\imu-stabilization\stabilizer-prototype\output\sample 013\\"
+base_dir = r"D:\Projects\ML\imu-stabilization\stabilizer-prototype\output\sample 015\\"
 
 path_save_pictures = r"D:\Projects\ML\imu-stabilization\stabilizer-prototype\output\vreader_saved\\"
 
@@ -59,7 +59,7 @@ hwinfo = dotdict({
 })
 
 options = dotdict({
-    'crop_factor': 2.5,  # 1 for original magnitude, 2.5 for long-ranged narrow fov
+    'crop_factor': 1.6,  # 1 for original magnitude, 2.5 for long-ranged narrow fov
     'display_hud': 'override_only',  # can be True, False or 'override_only'
 })
 
@@ -388,7 +388,7 @@ def play_video(*, write_file=False, allow_skip=None):
         # time.sleep(0.1)
         assert ret
 
-        altered_frame = show_frame_windows(frame, framestamp)[1]
+        altered_frame = show_frame_windows(frame, framestamp)[-1]
 
         if write_file:
             assert altered_frame is not None
